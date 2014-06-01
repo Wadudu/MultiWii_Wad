@@ -17,7 +17,7 @@
 
 //RAW RC values will be store here
 #if defined(SBUS)
-volatile uint16_t rcValue[RC_CHANS] = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500}; // interval [1000;2000]
+  volatile uint16_t rcValue[RC_CHANS] = {1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502}; // interval [1000;2000]
 #elif defined(SPEKTRUM) || defined(SERIAL_SUM_PPM)
   volatile uint16_t rcValue[RC_CHANS] = {1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502, 1502}; // interval [1000;2000]
 #else
@@ -28,9 +28,8 @@ volatile uint16_t rcValue[RC_CHANS] = {1500, 1500, 1500, 1500, 1500, 1500, 1500,
   static uint8_t rcChannel[RC_CHANS] = {SERIAL_SUM_PPM};
 #elif defined(SBUS) //Channel order for SBUS RX Configs
   // for 16 + 2 Channels SBUS. The 10 extra channels 8->17 are not used by MultiWii, but it should be easy to integrate them.
-static uint8_t rcChannel[RC_CHANS] = {SBUS}; 
-#elif defined(SUMD) 
-  static uint8_t rcChannel[RC_CHANS] = { PITCH, YAW, THROTTLE, ROLL, AUX1, AUX2, AUX3, AUX4 };
+  static uint8_t rcChannel[RC_CHANS] = {PITCH,YAW,THROTTLE,ROLL,AUX1,AUX2,AUX3,AUX4,8,9,10,11,12,13,14,15,16,17};
+  static uint16_t sbusIndex=0;
 #elif defined(SPEKTRUM)
   static uint8_t rcChannel[RC_CHANS] = {PITCH,YAW,THROTTLE,ROLL,AUX1,AUX2,AUX3,AUX4,8,9,10,11};
 #else // Standard Channel order
@@ -304,12 +303,10 @@ case 3: UCSR3C |= (1 << UPM31) | (1 << USBS3); break;
 /***************                   SBUS RX Data                    ********************/
 /**************************************************************************************/
 #if defined(SBUS)
-
-#define SBUS_SYNCBYTE 0x0F // Not 100% sure: at the beginning of coding it was 0xF0 !!! 
-static uint16_t sbusIndex=0; 
-static uint16_t sbus[25] = { 0 };
-
 void  readSBus(){
+#define SBUS_SYNCBYTE 0x0F // Not 100% sure: at the beginning of coding it was 0xF0 !!! 
+  #define SBUS_ENDBYTE 0x00
+static uint16_t sbus[25] = { 0 };
   while(SerialAvailable(RX_SERIAL_PORT)){
     int val = SerialRead(RX_SERIAL_PORT);
     if(sbusIndex==0 && val != SBUS_SYNCBYTE)
@@ -318,6 +315,7 @@ void  readSBus(){
     if(sbusIndex==25){
       sbusIndex=0;
       spekFrameFlags = 0x00;
+      if (sbus[24] != SBUS_ENDBYTE) continue; 
       rcValue[0]  = ((sbus[1]|sbus[2]<< 8) & 0x07FF)/2+SBUS_MID_OFFSET;
       rcValue[1]  = ((sbus[2]>>3|sbus[3]<<5) & 0x07FF)/2+SBUS_MID_OFFSET; 
       rcValue[2]  = ((sbus[3]>>6|sbus[4]<<2|sbus[5]<<10) & 0x07FF)/2+SBUS_MID_OFFSET; 

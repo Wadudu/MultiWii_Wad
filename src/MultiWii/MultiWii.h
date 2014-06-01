@@ -2,7 +2,7 @@
 #define MULTIWII_H_
 
 #define  VERSION  230
-#define  NAVI_VERSION 5						//This allow sync with GUI
+#define  NAVI_VERSION   7     //This allow sync with GUI
 #include "types.h"
 
 #define MINCHECK 1100
@@ -53,10 +53,11 @@ extern int16_t debug[4];
 extern conf_t conf;
 #if GPS
 extern gps_conf_struct GPS_conf;
-#else
+/*#else
 #error "this version of Multiwii need a GPS."
 #error "You can choose: Use a GPS or modify config.h to use GPS."
 #error "Even,if you don't have GPS connected, software still work and take no matter about this"
+*/
 #endif
 
 extern int16_t  annex650_overrun_count;
@@ -69,7 +70,7 @@ extern int16_t angle[2];
 
 #if BARO
   extern int32_t baroPressure;
-  extern int32_t baroTemperature; // temp in 0.01 deg
+extern int16_t baroTemperature; // temp in 0.01 deg
   extern int32_t baroPressureSum;
 #endif
 
@@ -115,8 +116,10 @@ extern int16_t lookupThrottleRC[11];
   extern uint32_t armedTime;
 #endif
 
-
+#if GPS
 // *************************************** begin GPS common variables and defines ******************************************************************
+
+extern gps_conf_struct GPS_conf;
 
   extern int16_t  GPS_angle[2];                      // the angles that must be applied for GPS correction
   extern int32_t  GPS_coord[2];
@@ -135,53 +138,19 @@ extern int16_t lookupThrottleRC[11];
   extern uint8_t  GPS_Present;                             // Checksum from Gps serial
   extern uint8_t  GPS_Enable;
   extern uint32_t GPS_time;
-  extern uint8_t  GPS_Frame;							   // indicates if a frame is ready to be computed
-
-
-  #define GPS_MODE_NONE 0									//This is the mode what is selected via the remote (NONE, HOLD, RTH and NAV (NAV-> exectute mission)
-  #define GPS_MODE_HOLD 1
-  #define GPS_MODE_RTH  2
-  #define GPS_MODE_NAV  3
 
   extern uint8_t  GPS_mode;	// contains the current selected gps flight mode
 
-  #define NAV_STATE_NONE				0
-  #define NAV_STATE_RTH_START			1
-  #define NAV_STATE_RTH_ENROUTE			2
-  #define NAV_STATE_HOLD_INFINIT		3
-  #define NAV_STATE_HOLD_TIMED			4
-  #define NAV_STATE_WP_ENROUTE			5
-  #define NAV_STATE_PROCESS_NEXT        6 
-  #define NAV_STATE_DO_JUMP				7
-  #define NAV_STATE_LAND_START			8
-  #define NAV_STATE_LAND_IN_PROGRESS    9
-  #define NAV_STATE_LANDED              10
-  #define NAV_STATE_LAND_SETTLE         11
-  #define NAV_STATE_LAND_START_DESCENT  12
-
-  #define NAV_ERROR_NONE				0   //All systems clear
-  #define NAV_ERROR_TOOFAR				1	//Next waypoint distance is more than safety distance
-  #define NAV_ERROR_SPOILED_GPS			2   //GPS reception is compromised - Nav paused - copter is adrift !
-  #define NAV_ERROR_WP_CRC				3   //CRC error reading WP data from EEPROM - Nav stopped
-  #define NAV_ERROR_FINISH				4   //End flag detected, navigation finished
-  #define NAV_ERROR_TIMEWAIT			5   //Waiting for poshold timer
-  #define NAV_ERROR_INVALID_JUMP		6   //Invalid jump target detected, aborting
-  #define NAV_ERROR_INVALID_DATA		7   //Invalid mission step action code, aborting, copter is adrift
-  #define NAV_ERROR_WAIT_FOR_RTH_ALT    8   //Waiting to reach RTH Altitude
-  #define NAV_ERROR_GPS_FIX_LOST		9	//Gps fix lost, aborting mission
-  #define NAV_ERROR_DISARMED			10  //NAV engine disabled due disarm
-  #define NAV_ERROR_LANDING				11
-
-  extern uint8_t NAV_error;
-  extern uint8_t NAV_state;  /// State of the nav engine
-  extern uint8_t GPS_saved_mission_state;
-  extern uint8_t prv_gps_modes;			  /// GPS_checkbox items packed into 1 byte for checking GPS mode changes
-  extern uint32_t nav_timer_stop;		  /// common timer used in navigation (contains the desired stop time in millis()
-  extern uint16_t nav_hold_time;		  /// time in seconds to hold position
+extern uint8_t NAV_error;                 //Last error situation of the nav engine
+extern uint8_t NAV_state;                 //State of the nav engine
+extern uint8_t GPS_saved_mission_state;   //The mission state saved when poshold invoked during mission
+extern uint8_t prv_gps_modes;             //GPS_checkbox items packed into 1 byte for checking GPS mode changes
+extern uint32_t nav_timer_stop;           //common timer used in navigation (contains the desired stop time in millis()
+extern uint16_t nav_hold_time;            //time in seconds to hold position
   extern uint8_t NAV_paused_at;		      // This contains the mission step where poshold paused the runing mission.
+extern uint8_t next_step;                 //The mission step which is upcoming it equals with the mission_step stored in EEPROM
 
-  extern uint8_t next_step;			      /// The mission step which is upcoming it equals with the mission_step stored in EEPROM
-
+//Altitude control state
   #define ASCENDING			1
   #define DESCENDING			-1
   #define REACHED_ALT			0
@@ -203,7 +172,6 @@ extern uint8_t  land_detect;            //land detector variable
   // ************************
   // mission step structure
   // ************************
-
 extern mission_step_struct mission_step;
 
   //possible action codes for a mission step 
@@ -218,37 +186,38 @@ extern mission_step_struct mission_step;
 
 
   #define MISSION_FLAG_END         0xA5		//Flags that this is the last step
-  #define MISSION_FLAG_CRC_ERROR   0xFE;		//Returned WP had an EEPROM CRC error
-  #define MISSION_FLAG_HOME        0x01;		//Returned WP is the home position
-  #define MISSION_FLAG_HOLD		   0x02;		//Returned WP is the hold position
-  #define MISSION_FLAG_DO_LAND       0x20;		//Land when reached desired point (used in RTH)
-  #define MISSION_FLAG_NAV_IN_PROG 0xff;		//Navigation is in progress, returned wp is home
-
+#define MISSION_FLAG_CRC_ERROR   0xFE   //Returned WP had an EEPROM CRC error
+#define MISSION_FLAG_HOME        0x01   //Returned WP is the home position
+#define MISSION_FLAG_HOLD        0x02   //Returned WP is the hold position
+#define MISSION_FLAG_DO_LAND     0x20   //Land when reached desired point (used in RTH)
+#define MISSION_FLAG_NAV_IN_PROG 0xff   //Navigation is in progress, returned wp is home
 
   #define LAT  0
   #define LON  1
 
   extern int16_t  nav[2];
 
+
+#endif 
+
   // default POSHOLD control gains
-  #define POSHOLD_P              .11
+#define POSHOLD_P              .15
   #define POSHOLD_I              0.0
   #define POSHOLD_IMAX           20        // degrees
 
-  #define POSHOLD_RATE_P         2.0
-  #define POSHOLD_RATE_I         0.08      // Wind control
-  #define POSHOLD_RATE_D         0.045     // try 2 or 3 for POSHOLD_RATE 1
+#define POSHOLD_RATE_P         3.4
+#define POSHOLD_RATE_I         0.14      // Wind control
+#define POSHOLD_RATE_D         0.053     // try 2 or 3 for POSHOLD_RATE 1
   #define POSHOLD_RATE_IMAX      20        // degrees
 
   // default Navigation PID gains
-  #define NAV_P                  1.4
-  #define NAV_I                  0.20      // Wind control
-  #define NAV_D                  0.08      //
+#define NAV_P                  2.5
+#define NAV_I                  0.33      // Wind control
+#define NAV_D                  0.083      //
   #define NAV_IMAX               20        // degrees
 
 
   // *************************************** end GPS common variables and defines ******************************************************************
-
 
   extern volatile uint8_t  spekFrameFlags;
   extern volatile uint32_t spekTimeLast;

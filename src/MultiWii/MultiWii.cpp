@@ -15,6 +15,7 @@ November  2013     V2.3
 #include "types.h"
 #include "MultiWii.h"
 #include "Alarms.h"
+#include "SDcard.h"
 #include "EEPROM.h"
 #include "IMU.h"
 #include "LCD.h"
@@ -24,6 +25,7 @@ November  2013     V2.3
 #include "Serial.h"
 #include "GPS.h"
 #include "Protocol.h"
+
 #include <avr/pgmspace.h>
 
 /*********** RC alias *****************/
@@ -310,13 +312,16 @@ conf_t conf;
   plog_t plog;
 #endif
 
-  gps_conf_struct GPS_conf;
 
+
+int16_t  GPS_angle[2] = { 0, 0};                      // the angles that must be applied for GPS correction
+
+#if GPS
+  gps_conf_struct GPS_conf;
 // **********************
 // GPS common variables
 // **********************
 
-  int16_t  GPS_angle[2] = { 0, 0};                      // the angles that must be applied for GPS correction
   int32_t  GPS_coord[2];
   int32_t  GPS_home[2];
   int32_t  GPS_hold[2];
@@ -368,11 +373,16 @@ conf_t conf;
  uint32_t alt_change_timer;
  int8_t 	alt_change_flag;
  uint32_t alt_change;
+
+#endif
+
+
+
  uint8_t alarmArray[16];           // array
  
 #if BARO
   int32_t baroPressure;
-  int32_t baroTemperature;
+int16_t baroTemperature;
   int32_t baroPressureSum;
 #endif
 
@@ -1082,9 +1092,21 @@ void loop () {
       }
     #endif
 
+#if defined(EXTENDED_AUX_STATES)
+    uint32_t auxState = 0;
+    for(i=0;i<4;i++)
+      auxState |= (rcData[AUX1+i]<1230)<<(6*i) | 
+      (1231<rcData[AUX1+i] && rcData[AUX1+i]<1360)<<(6*i+1) |
+      (1361<rcData[AUX1+i] && rcData[AUX1+i]<1490)<<(6*i+2) |
+      (1491<rcData[AUX1+i] && rcData[AUX1+i]<1620)<<(6*i+3) |
+      (1621<rcData[AUX1+i] && rcData[AUX1+i]<1749)<<(6*i+4) |
+      (rcData[AUX1+i]>1750)<<(6*i+5);
+#else
     uint16_t auxState = 0;
     for(i=0;i<4;i++)
       auxState |= (rcData[AUX1+i]<1300)<<(3*i) | (1300<rcData[AUX1+i] && rcData[AUX1+i]<1700)<<(3*i+1) | (rcData[AUX1+i]>1700)<<(3*i+2);
+#endif
+
     for(i=0;i<CHECKBOXITEMS;i++)
       rcOptions[i] = (auxState & conf.activate[i])>0;
 
@@ -1228,13 +1250,16 @@ void loop () {
 						    NAV_state = NAV_STATE_HOLD_INFINIT;
                           #endif
 						  }
+#if !defined(I2C_GPS)
 					  else if (rcOptions[BOXLAND])									//Land now
 						  {
 						  f.GPS_mode = GPS_MODE_HOLD;
+              f.GPS_BARO_MODE = true;
 						  GPS_set_next_wp(&GPS_coord[LAT], &GPS_coord[LON],&GPS_coord[LAT], & GPS_coord[LON]);	
 						  set_new_altitude(alt.EstAlt);
 						  NAV_state = NAV_STATE_LAND_START;
 						  }
+#endif
 					  else if (rcOptions[BOXGPSNAV])								//Start navigation
 						  {
 						  #if defined(I2C_GPS)
@@ -1320,7 +1345,6 @@ void loop () {
 		  GPS_reset_nav();
 		  }
 
-	
 #endif
 
 
@@ -1365,7 +1389,8 @@ void loop () {
       case 3:
         taskOrder++;
         #if GPS
-		GPS_NewData();
+          if(GPS_Enable) GPS_NewData();  // I2C GPS: 160 us with no new data / 1250us! with new data 
+          break;
 	    #endif
       case 4:
         taskOrder++;
@@ -1432,16 +1457,22 @@ void loop () {
 		else 
 			f.THROTTLE_IGNORED = 0;
 		}
+
+  //Heading manipulation
+
+
 #endif
 
 
  
   #if MAG
     if (abs(rcCommand[YAW]) <70 && f.MAG_MODE) {
+
       int16_t dif = att.heading - magHold;
       if (dif <= - 180) dif += 360;
       if (dif >= + 180) dif -= 360;
-      if ( f.SMALL_ANGLES_25 || (f.GPS_mode != GPS_MODE_NONE)) rcCommand[YAW] -= dif*conf.pid[PIDMAG].P8>>5;  //Always correct maghold in GPS mode
+
+    if ( f.SMALL_ANGLES_25 || (f.GPS_mode != 0)) rcCommand[YAW] -= dif*conf.pid[PIDMAG].P8>>5;  //Always correct maghold in GPS mode
     } else magHold = att.heading;
   #endif
 
@@ -1452,7 +1483,7 @@ void loop () {
     if (f.BARO_MODE) {
       static uint8_t isAltHoldChanged = 0;
       static int16_t AltHoldCorr = 0;
-
+#if GPS
 	  if (f.LAND_IN_PROGRESS)
 		  {
 		  AltHoldCorr -= GPS_conf.land_speed;
@@ -1461,7 +1492,7 @@ void loop () {
 			  AltHoldCorr %= 512;
 			  }
 		  }
-
+#endif
 	  if ( (abs(rcCommand[THROTTLE]-initialThrottleHold)>ALT_HOLD_THROTTLE_NEUTRAL_ZONE) && !f.THROTTLE_IGNORED) {
         // Slowly increase/decrease AltHold proportional to stick movement ( +100 throttle gives ~ +50 cm in 1 second with cycle time about 3-4ms)
         AltHoldCorr+= rcCommand[THROTTLE] - initialThrottleHold;
@@ -1642,6 +1673,10 @@ void loop () {
 #endif
   mixTable();
   // do not update servos during unarmed calibration of sensors which are sensitive to vibration
+#if defined(DISABLE_SERVOS_WHEN_UNARMED)
+  if (f.ARMED) writeServos();
+#else
   if ( (f.ARMED) || ((!calibratingG) && (!calibratingA)) ) writeServos();
+#endif 
   writeMotors();
 }

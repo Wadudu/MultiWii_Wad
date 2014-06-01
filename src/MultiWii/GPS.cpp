@@ -9,8 +9,6 @@
 #include "EEPROM.h"
 #include <math.h>
 
-
-
 #if GPS
 
 bool GPS_newFrame(char c);
@@ -24,7 +22,6 @@ bool GPS_newFrame(char c);
 #if defined(MTK_BINARY16) || defined(MTK_BINARY19)
   bool GPS_MTK_newFrame(uint8_t data);
 #endif
-
 void GPS_bearing(int32_t* lat1, int32_t* lon1, int32_t* lat2, int32_t* lon2, int32_t* bearing);
 void GPS_distance_cm(int32_t* lat1, int32_t* lon1, int32_t* lat2, int32_t* lon2,uint32_t* dist);
 static void GPS_calc_velocity(void);
@@ -38,6 +35,9 @@ void GPS_calc_longitude_scaling(int32_t lat);
 static void GPS_update_crosstrack(void);
 int32_t wrap_36000(int32_t ang);
 uint8_t land_detect;							//Detect land
+
+
+
 
 #if defined(INIT_MTK_GPS)
   #define MTK_SET_BINARY          PSTR("$PGCMD,16,0,0,0,0,0*6A\r\n")
@@ -220,15 +220,126 @@ LeadFilter yLeadFilter;      // Lat  GPS lag filter
 static int16_t nav_takeoff_bearing;
 
 #if defined(I2C_GPS)
-
-
  int16_t target_bearing;
+void set_new_altitude(int32_t _new_alt)
+{
 
+	//Limit maximum altitude command
+	if (_new_alt > GPS_conf.nav_max_altitude * 100) _new_alt = GPS_conf.nav_max_altitude * 100;
+
+	if (_new_alt == alt.EstAlt){
+		force_new_altitude(_new_alt);
+		return;
+	}
+
+	// We start at the current location altitude and gradually change alt
+	alt_to_hold = alt.EstAlt;
+
+	// for calculating the delta time
+	alt_change_timer = millis();
+
+	// save the target altitude
+	target_altitude = _new_alt;
+
+	// reset our altitude integrator
+	alt_change = 0;
+
+	// save the original altitude
+	original_altitude = alt.EstAlt;
+
+	// to decide if we have reached the target altitude
+	if (target_altitude > original_altitude){
+		// we are below, going up
+		alt_change_flag = ASCENDING;
+	}
+	else if (target_altitude < original_altitude){
+		// we are above, going down
+		alt_change_flag = DESCENDING;
+	}
+	else{
+		// No Change
+		alt_change_flag = REACHED_ALT;
+	}
+}
+
+int32_t get_altitude_error()
+{
+	return alt_to_hold - alt.EstAlt;
+}
+
+void clear_new_altitude()
+{
+	alt_change_flag = REACHED_ALT;
+}
+
+void force_new_altitude(int32_t _new_alt)
+{
+	alt_to_hold = _new_alt;
+	target_altitude = _new_alt;
+	alt_change_flag = REACHED_ALT;
+}
+
+
+int32_t get_new_altitude()
+{
+	// returns a new altitude which feeded into the alt.hold controller
+
+	if (alt_change_flag == ASCENDING)
+	{
+		// we are below, going up
+		if (alt.EstAlt >= target_altitude) alt_change_flag = REACHED_ALT;
+		// we shouldn't command past our target
+		if (alt_to_hold >= target_altitude) return target_altitude;
+	}
+	else if (alt_change_flag == DESCENDING)
+	{
+		// we are above, going down
+		if (alt.EstAlt <= target_altitude) alt_change_flag = REACHED_ALT;
+		// we shouldn't command past our target
+		if (alt_to_hold <= target_altitude) return target_altitude;
+	}
+
+	// if we have reached our target altitude, return the target alt
+	if (alt_change_flag == REACHED_ALT) return target_altitude;
+
+
+	int32_t diff = abs(alt_to_hold - target_altitude);
+	// scale is how we generate a desired rate from the elapsed time
+	// a smaller scale means faster rates
+	int8_t			_scale = 4;
+
+	if (alt_to_hold < target_altitude)
+	{
+		// we are below the target alt
+		if (diff < 200)	_scale = 4;
+		else _scale = 3;
+	}
+	else
+	{
+		// we are above the target, going down
+		if (diff < 400) _scale = 5;		//Slow down if only 4meters above
+		if (diff < 100) _scale = 6;		//Slow down further if within 1meter
+	}
+
+	// we use the elapsed time as our altitude offset
+	// 1000 = 1 sec
+	// 1000 >> 4 = 64cm/s descent by default
+	int32_t change = (millis() - alt_change_timer) >> _scale;
+
+	if (alt_change_flag == ASCENDING){
+		alt_change += change;
+	}
+	else{
+		alt_change -= change;
+	}
+	// for generating delta time
+	alt_change_timer = millis();
+
+	return original_altitude + alt_change;
+}
 
   /////////////////////////////////////////////////////////////////////////////////////////
-  // I2C GPS helper functions
-  //
-  // Send a command to the I2C GPS module, first parameter command, second parameter wypoint number
+// I2C GPS  functions
   void GPS_I2C_command(uint8_t command, uint8_t wp) {
     uint8_t _cmd;
       
@@ -238,106 +349,6 @@ static int16_t nav_takeoff_bearing;
     i2c_write(I2C_GPS_COMMAND);
     i2c_write(_cmd);
   }
-#endif 
-
-#if defined(GPS_SERIAL) 
- #if defined(INIT_MTK_GPS) || defined(UBLOX)
-  uint32_t init_speed[5] = {9600,19200,38400,57600,115200};
-  void SerialGpsPrint(const char PROGMEM * str) {
-    char b;
-    while(str && (b = pgm_read_byte(str++))) {
-      SerialWrite(GPS_SERIAL, b); 
-      #if defined(UBLOX)
-        delay(5);
-      #endif      
-    }
-  }
- #endif
- #if defined(UBLOX)
-   const char PROGMEM UBLOX_INIT[] PROGMEM = {                          // PROGMEM array must be outside any function !!!
-     0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x05,0x00,0xFF,0x19,                            //disable all default NMEA messages
-     0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x03,0x00,0xFD,0x15,
-     0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x01,0x00,0xFB,0x11,
-     0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x00,0x00,0xFA,0x0F,
-     0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x02,0x00,0xFC,0x13,
-     0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x04,0x00,0xFE,0x17,
-     0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x02,0x01,0x0E,0x47,                            //set POSLLH MSG rate
-     0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x03,0x01,0x0F,0x49,                            //set STATUS MSG rate
-     0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x06,0x01,0x12,0x4F,                            //set SOL MSG rate
-     0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x12,0x01,0x1E,0x67,                            //set VELNED MSG rate
-     0xB5,0x62,0x06,0x16,0x08,0x00,0x03,0x07,0x03,0x00,0x51,0x08,0x00,0x00,0x8A,0x41,   //set WAAS to EGNOS
-     0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xC8, 0x00, 0x01, 0x00, 0x01, 0x00, 0xDE, 0x6A //set rate to 5Hz
-   };
- #endif
-
-  void GPS_SerialInit(void) {
-    SerialOpen(GPS_SERIAL,GPS_BAUD);
-    delay(1000);
-    #if defined(UBLOX)
-      for(uint8_t i=0;i<5;i++){
-        SerialOpen(GPS_SERIAL,init_speed[i]);          // switch UART speed for sending SET BAUDRATE command (NMEA mode)
-        #if (GPS_BAUD==19200)
-          SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,19200,0*23\r\n"));     // 19200 baud - minimal speed for 5Hz update rate
-        #endif  
-        #if (GPS_BAUD==38400)
-          SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,38400,0*26\r\n"));     // 38400 baud
-        #endif  
-        #if (GPS_BAUD==57600)
-          SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,57600,0*2D\r\n"));     // 57600 baud
-        #endif  
-        #if (GPS_BAUD==115200)
-          SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,115200,0*1E\r\n"));    // 115200 baud
-        #endif  
-        while(!SerialTXfree(GPS_SERIAL)) delay(10);
-      }
-      delay(200);
-      SerialOpen(GPS_SERIAL,GPS_BAUD);  
-      for(uint8_t i=0; i<sizeof(UBLOX_INIT); i++) {                        // send configuration data in UBX protocol
-        SerialWrite(GPS_SERIAL, pgm_read_byte(UBLOX_INIT+i));
-        delay(5); //simulating a 38400baud pace (or less), otherwise commands are not accepted by the device.
-      }
-    #elif defined(INIT_MTK_GPS)                              // MTK GPS setup
-      for(uint8_t i=0;i<5;i++){
-        SerialOpen(GPS_SERIAL,init_speed[i]);                // switch UART speed for sending SET BAUDRATE command
-        #if (GPS_BAUD==19200)
-          SerialGpsPrint(PSTR("$PMTK251,19200*22\r\n"));     // 19200 baud - minimal speed for 5Hz update rate
-        #endif  
-        #if (GPS_BAUD==38400)
-          SerialGpsPrint(PSTR("$PMTK251,38400*27\r\n"));     // 38400 baud
-        #endif  
-        #if (GPS_BAUD==57600)
-          SerialGpsPrint(PSTR("$PMTK251,57600*2C\r\n"));     // 57600 baud
-        #endif  
-        #if (GPS_BAUD==115200)
-          SerialGpsPrint(PSTR("$PMTK251,115200*1F\r\n"));    // 115200 baud
-        #endif  
-        while(!SerialTXfree(GPS_SERIAL)) delay(80);
-      }
-      // at this point we have GPS working at selected (via #define GPS_BAUD) baudrate
-      // So now we have to set the desired mode and update rate (which depends on the NMEA or MTK_BINARYxx settings)
-      SerialOpen(GPS_SERIAL,GPS_BAUD);
-
-      SerialGpsPrint(MTK_NAVTHRES_OFF);
-        while(!SerialTXfree(GPS_SERIAL)) delay(80);
-      SerialGpsPrint(SBAS_ON);
-        while(!SerialTXfree(GPS_SERIAL)) delay(80);
-      SerialGpsPrint(WAAS_ON);
-        while(!SerialTXfree(GPS_SERIAL)) delay(80);
-      SerialGpsPrint(SBAS_TEST_MODE);
-        while(!SerialTXfree(GPS_SERIAL)) delay(80);
-      SerialGpsPrint(MTK_OUTPUT_5HZ);           // 5 Hz update rate
-
-      #if defined(NMEA)
-        SerialGpsPrint(MTK_SET_NMEA_SENTENCES); // only GGA and RMC sentence
-      #endif     
-      #if defined(MTK_BINARY19) || defined(MTK_BINARY16)
-        SerialGpsPrint(MTK_SET_BINARY);
-      #endif
-    #endif  //elif init_mtk_gps
-  }
-#endif //gps_serial
-
-#if defined(I2C_GPS)
 void GPS_Process_I2C() {
 
     static uint8_t GPS_pids_initialized;
@@ -471,19 +482,108 @@ void GPS_Process_I2C() {
     }
   
 	}
-
 	void GPS_NewData(void) {
 	  GPS_Process_I2C();
   }
-
-
-
-
 #endif 
 
-//Main GPS nav loop. Called by the task scheduler
-#if defined (GPS_SERIAL)
+#if defined(GPS_SERIAL) 
+#if defined(INIT_MTK_GPS) || defined(UBLOX)
+uint32_t init_speed[5] = {9600,19200,38400,57600,115200};
+void SerialGpsPrint(const char PROGMEM * str) {
+  char b;
+  while(str && (b = pgm_read_byte(str++))) {
+    SerialWrite(GPS_SERIAL, b); 
+#if defined(UBLOX)
+    delay(5);
+#endif      
+    }
+  }
+#endif
+#if defined(UBLOX)
+const uint8_t UBLOX_INIT[] PROGMEM = {                          // PROGMEM array must be outside any function !!!
+  0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x05,0x00,0xFF,0x19,                            //disable all default NMEA messages
+  0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x03,0x00,0xFD,0x15,
+  0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x01,0x00,0xFB,0x11,
+  0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x00,0x00,0xFA,0x0F,
+  0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x02,0x00,0xFC,0x13,
+  0xB5,0x62,0x06,0x01,0x03,0x00,0xF0,0x04,0x00,0xFE,0x17,
+  0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x02,0x01,0x0E,0x47,                            //set POSLLH MSG rate
+  0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x03,0x01,0x0F,0x49,                            //set STATUS MSG rate
+  0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x06,0x01,0x12,0x4F,                            //set SOL MSG rate
+  0xB5,0x62,0x06,0x01,0x03,0x00,0x01,0x12,0x01,0x1E,0x67,                            //set VELNED MSG rate
+  0xB5,0x62,0x06,0x16,0x08,0x00,0x03,0x07,0x03,0x00,0x51,0x08,0x00,0x00,0x8A,0x41,   //set WAAS to EGNOS
+  0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xC8, 0x00, 0x01, 0x00, 0x01, 0x00, 0xDE, 0x6A //set rate to 5Hz
+  };
+#endif
 
+void GPS_SerialInit(void) {
+  SerialOpen(GPS_SERIAL,GPS_BAUD);
+  delay(1000);
+#if defined(UBLOX)
+  for(uint8_t i=0;i<5;i++){
+    SerialOpen(GPS_SERIAL,init_speed[i]);          // switch UART speed for sending SET BAUDRATE command (NMEA mode)
+#if (GPS_BAUD==19200)
+    SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,19200,0*23\r\n"));     // 19200 baud - minimal speed for 5Hz update rate
+#endif  
+#if (GPS_BAUD==38400)
+    SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,38400,0*26\r\n"));     // 38400 baud
+#endif  
+#if (GPS_BAUD==57600)
+    SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,57600,0*2D\r\n"));     // 57600 baud
+#endif  
+#if (GPS_BAUD==115200)
+    SerialGpsPrint(PSTR("$PUBX,41,1,0003,0001,115200,0*1E\r\n"));    // 115200 baud
+#endif  
+    while(!SerialTXfree(GPS_SERIAL)) delay(10);
+    }
+  delay(200);
+  SerialOpen(GPS_SERIAL,GPS_BAUD);  
+  for(uint8_t i=0; i<sizeof(UBLOX_INIT); i++) {                        // send configuration data in UBX protocol
+    SerialWrite(GPS_SERIAL, pgm_read_byte(UBLOX_INIT+i));
+    delay(5); //simulating a 38400baud pace (or less), otherwise commands are not accepted by the device.
+    }
+#elif defined(INIT_MTK_GPS)                              // MTK GPS setup
+  for(uint8_t i=0;i<5;i++){
+    SerialOpen(GPS_SERIAL,init_speed[i]);                // switch UART speed for sending SET BAUDRATE command
+#if (GPS_BAUD==19200)
+    SerialGpsPrint(PSTR("$PMTK251,19200*22\r\n"));     // 19200 baud - minimal speed for 5Hz update rate
+#endif  
+#if (GPS_BAUD==38400)
+    SerialGpsPrint(PSTR("$PMTK251,38400*27\r\n"));     // 38400 baud
+#endif  
+#if (GPS_BAUD==57600)
+    SerialGpsPrint(PSTR("$PMTK251,57600*2C\r\n"));     // 57600 baud
+#endif  
+#if (GPS_BAUD==115200)
+    SerialGpsPrint(PSTR("$PMTK251,115200*1F\r\n"));    // 115200 baud
+#endif  
+    while(!SerialTXfree(GPS_SERIAL)) delay(80);
+    }
+  // at this point we have GPS working at selected (via #define GPS_BAUD) baudrate
+  // So now we have to set the desired mode and update rate (which depends on the NMEA or MTK_BINARYxx settings)
+  SerialOpen(GPS_SERIAL,GPS_BAUD);
+
+  SerialGpsPrint(MTK_NAVTHRES_OFF);
+  while(!SerialTXfree(GPS_SERIAL)) delay(80);
+  SerialGpsPrint(SBAS_ON);
+  while(!SerialTXfree(GPS_SERIAL)) delay(80);
+  SerialGpsPrint(WAAS_ON);
+  while(!SerialTXfree(GPS_SERIAL)) delay(80);
+  SerialGpsPrint(SBAS_TEST_MODE);
+  while(!SerialTXfree(GPS_SERIAL)) delay(80);
+  SerialGpsPrint(MTK_OUTPUT_5HZ);           // 5 Hz update rate
+
+#if defined(NMEA)
+  SerialGpsPrint(MTK_SET_NMEA_SENTENCES); // only GGA and RMC sentence
+#endif     
+#if defined(MTK_BINARY19) || defined(MTK_BINARY16)
+  SerialGpsPrint(MTK_SET_BINARY);
+#endif
+#endif  //elif init_mtk_gps
+  }
+
+//Main GPS nav loop. Called by the task scheduler
 void GPS_NewData(void) {
 	  uint8_t c = SerialAvailable(GPS_SERIAL);
 	  while (c--) {
@@ -493,6 +593,8 @@ void GPS_NewData(void) {
 			  GPS_Process_data();
 			  }
 		  }
+  
+  // Check for stalled GPS, if no frames seen for 1.2sec then consider it LOST
 	  if ((millis() - GPS_last_frame_seen) > 1200)
 		  {
 		    //No update since 1200ms clear fix...
@@ -501,12 +603,17 @@ void GPS_NewData(void) {
 		  }
   }
 
-//Main navigation processor
+//Main navigation processor and state engine
+// TODO: add proceesing states to ease processing burden 
 void GPS_Process_data()
 	{
 	   unsigned char axis;
+  uint32_t dist;        //temp variable to store dist to copter
+  int32_t  dir;         //temp variable to store dir to copter
+  static uint32_t nav_loopTimer;
 
 	   if (f.GPS_FIX && GPS_numSat >= 5) {                         //No fix, or les than 5 sats --> no GPS functionality
+
 
           #if !defined(DONT_RESET_HOME_AT_ARM)
             if (!f.ARMED) {f.GPS_FIX_HOME = 0;}
@@ -514,7 +621,6 @@ void GPS_Process_data()
           if (!f.GPS_FIX_HOME && f.ARMED) {
             GPS_reset_home_position();
           }
-
 
 		  //Apply moving average filter to GPS data
 		  if (GPS_conf.filtering)
@@ -537,19 +643,16 @@ void GPS_Process_data()
 					  }
 				  }
 			  }
+
           //dTnav calculation
           //Time for calculating x,y speed and navigation pids
-          static uint32_t nav_loopTimer;
-
           dTnav = (float)(millis() - nav_loopTimer)/ 1000.0;
           nav_loopTimer = millis();
-          // prevent runup from bad GPS
 
+          // prevent runup from bad GPS
 		  dTnav = min(dTnav, 1.0);  
 
           //calculate distance and bearings for gui and other stuff continously - From home to copter
-          uint32_t dist;
-          int32_t  dir;
           GPS_bearing(&GPS_coord[LAT],&GPS_coord[LON],&GPS_home[LAT],&GPS_home[LON],&dir);
           GPS_distance_cm(&GPS_coord[LAT],&GPS_coord[LON],&GPS_home[LAT],&GPS_home[LON],&dist);
           GPS_distanceToHome = dist/100;
@@ -560,8 +663,6 @@ void GPS_Process_data()
              GPS_directionToHome = 0;
           }
           
-
-		  
 		  //Check fence setting and execute RTH if neccessary
 		  //TODO: autolanding
 		  if ((GPS_conf.fence > 0) && (GPS_conf.fence < GPS_distanceToHome) && (f.GPS_mode != GPS_MODE_RTH) )
@@ -569,10 +670,10 @@ void GPS_Process_data()
 			  init_RTH();
 			  }
 
-
           //calculate the current velocity based on gps coordinates continously to get a valid speed at the moment when we start navigating
           GPS_calc_velocity();        
           
+    //Navigation state engine
           if (f.GPS_mode != GPS_MODE_NONE)    //ok we are navigating ###0002 
 		  { 
 
@@ -665,8 +766,9 @@ void GPS_Process_data()
 				else if (nav_timer_stop <= millis())				//did we reach our time limit ?
 				{
 					if (mission_step.flag != MISSION_FLAG_END)
+              {
 						NAV_state = NAV_STATE_PROCESS_NEXT;		   //if yes then process next mission step
-
+              }
 					NAV_error = NAV_ERROR_TIMEWAIT;
 				}
 				GPS_calc_poshold();									//BTW hold position till next command
@@ -685,6 +787,7 @@ void GPS_Process_data()
 					NAV_error = NAV_ERROR_WAIT_FOR_RTH_ALT;
 					}
 				break;
+
 			case NAV_STATE_RTH_ENROUTE:								//Doing RTH navigation
 				speed = GPS_calc_desired_speed(GPS_conf.nav_speed_max, GPS_conf.slow_nav); 
 				GPS_calc_nav_rate(speed);
@@ -760,7 +863,6 @@ void GPS_Process_data()
 					}
 				break;
 
-
 			case NAV_STATE_PROCESS_NEXT:			//Processing next mission step
 				NAV_error = NAV_ERROR_NONE;
 				if (!recallWP(next_step)) 
@@ -831,21 +933,22 @@ void GPS_Process_data()
         }
       } // if gps.fix ** numsat >=5 - These situations are handled in the GPS options loop
 // Abort current mission with the given error code (switch to poshold_infinit)	
+
 void abort_mission(unsigned char error_code)
 	{
 	GPS_set_next_wp(&GPS_coord[LAT], &GPS_coord[LON],&GPS_coord[LAT], &GPS_coord[LON]);	
     NAV_error = error_code;
 	NAV_state = NAV_STATE_HOLD_INFINIT;
 	}
-
+//Adjusting heading according to settings - MAG mode must be enabled
 void GPS_adjust_heading()
 	{
-
+  //TODO: Add slow windup for large heading change
 	//This controls the heading
 	if (f.GPS_head_set)					// We have seen a SET_POI or a SET_HEADING command
 		{
 		if (GPS_poi[LAT] == 0)
-			magHold = GPS_directionToPoi-180;
+      magHold = wrap_18000((GPS_directionToPoi*100)-18000)/100;
 		else 
 			{
 			GPS_bearing(&GPS_coord[LAT],&GPS_coord[LON],&GPS_poi[LAT],&GPS_poi[LON],&GPS_directionToPoi);
@@ -854,20 +957,23 @@ void GPS_adjust_heading()
 			}
 		}
 	else                                // heading controlled by the standard defines
-		if (GPS_conf.nav_controls_heading) {
-			if (GPS_conf.nav_tail_first) {
+    if (GPS_conf.nav_controls_heading) 
+      {
+      if (GPS_conf.nav_tail_first) 
+        {
 			magHold = wrap_18000(target_bearing-18000)/100;
-			} else {
-				magHold = target_bearing/100;
-			}
-		}
+        } 
+      else 
+        {
+          magHold = wrap_18000(target_bearing)/100;
+        }
+      }
+  }
 
-
-	}
-//Check if we landed or not.
-#define LAND_DETECT_THRESHOLD 40						
+#define LAND_DETECT_THRESHOLD 40      //Counts of land situation
 #define BAROPIDMIN           -180  //BaroPID reach this if we landed.....
 
+//Check if we landed or not
 void check_land()
 	{
     // detect whether we have landed by watching for low climb rate and throttle control
@@ -889,8 +995,6 @@ void check_land()
         }
     }
 	}
-
-#endif
 
 int32_t get_altitude_error()
 {
@@ -1005,145 +1109,13 @@ int32_t get_new_altitude()
 	return original_altitude + alt_change;
 	}
 
-//************************************************************************
-
-void init_RTH()
-	{
-	f.GPS_mode = GPS_MODE_RTH;									// Set GPS_mode to RTH
-	f.GPS_BARO_MODE = true;
-#if defined (I2C_GPS)
-	GPS_I2C_command(I2C_GPS_COMMAND_START_NAV,0);            //waypoint zero
-#else
-	GPS_hold[LAT] = GPS_coord[LAT];							//All RTH starts with a poshold 
-	GPS_hold[LON] = GPS_coord[LON];							//This allows to raise to rth altitude
-	GPS_set_next_wp(&GPS_hold[LAT],&GPS_hold[LON], &GPS_hold[LAT], &GPS_hold[LON]);
-	NAV_paused_at = 0;
-	if (GPS_conf.rth_altitude == 0) set_new_altitude(alt.EstAlt);	    //Return at actual altitude
-	else {													// RTH altitude is defined, but we use it only if we are below it
-		if (alt.EstAlt < GPS_conf.rth_altitude * 100) 
-			set_new_altitude(GPS_conf.rth_altitude * 100);
-		else set_new_altitude(alt.EstAlt);					   
-		}
-	f.GPS_head_set = 0;										//Allow the RTH ti handle heading
-	NAV_state = NAV_STATE_RTH_START;							//NAV engine status is Starting RTH.
-#endif
-	}
-
-
-
-
-void GPS_reset_home_position(void) {
-  if (f.GPS_FIX && GPS_numSat >= 5) {
-    #if defined(I2C_GPS)
-      //set current position as home
-      GPS_I2C_command(I2C_GPS_COMMAND_SET_WP,0);  //WP0 is the home position
-    #else
-      GPS_home[LAT] = GPS_coord[LAT];
-      GPS_home[LON] = GPS_coord[LON];
-      GPS_calc_longitude_scaling(GPS_coord[LAT]);  //need an initial value for distance and bearing calc
-    #endif
-    nav_takeoff_bearing = att.heading;             //save takeoff heading
-    //TODO: Set ground altitude
-    f.GPS_FIX_HOME = 1;
-  }
-}
-
-//reset navigation (stop the navigation processor, and clear nav)
-void GPS_reset_nav(void) {
-  uint8_t i;
-  
-  for(i=0;i<2;i++) {
-    nav[i] = 0;
-    #if defined(I2C_GPS)
-      GPS_I2C_command(I2C_GPS_COMMAND_STOP_NAV,0);
-    #else
-      reset_PID(&posholdPID[i]);
-      reset_PID(&poshold_ratePID[i]);
-      reset_PID(&navPID[i]);
-	  NAV_state = NAV_STATE_NONE;
-	  //invalidate JUMP counter
-	  jump_times = -10;
-	  //reset next step counter
-	  next_step = 1;
-	  //Clear poi
-	  GPS_poi[LAT] = 0; GPS_poi[LON] = 0;
-	  f.GPS_head_set = 0;
-    #endif
-  }
-}
-
-//Get the relevant P I D values and set the PID controllers 
-void GPS_set_pids(void) {
-  #if defined(GPS_SERIAL)  || defined(GPS_FROM_OSD)
-    posholdPID_PARAM.kP   = (float)conf.pid[PIDPOS].P8/100.0;
-    posholdPID_PARAM.kI   = (float)conf.pid[PIDPOS].I8/100.0;
-    posholdPID_PARAM.Imax = POSHOLD_RATE_IMAX * 100;
-    
-    poshold_ratePID_PARAM.kP   = (float)conf.pid[PIDPOSR].P8/10.0;
-    poshold_ratePID_PARAM.kI   = (float)conf.pid[PIDPOSR].I8/100.0;
-    poshold_ratePID_PARAM.kD   = (float)conf.pid[PIDPOSR].D8/1000.0;
-    poshold_ratePID_PARAM.Imax = POSHOLD_RATE_IMAX * 100;
-    
-    navPID_PARAM.kP   = (float)conf.pid[PIDNAVR].P8/10.0;
-    navPID_PARAM.kI   = (float)conf.pid[PIDNAVR].I8/100.0;
-    navPID_PARAM.kD   = (float)conf.pid[PIDNAVR].D8/1000.0;
-    navPID_PARAM.Imax = POSHOLD_RATE_IMAX * 100;
-  #endif
-
-  #if defined(I2C_GPS)
-	if (!f.I2C_INIT_DONE) return;
-    i2c_rep_start(I2C_GPS_ADDRESS<<1);
-      i2c_write(I2C_GPS_HOLD_P);
-       i2c_write(conf.pid[PIDPOS].P8);
-       i2c_write(conf.pid[PIDPOS].I8);
-    
-    i2c_rep_start(I2C_GPS_ADDRESS<<1);
-      i2c_write(I2C_GPS_HOLD_RATE_P);
-       i2c_write(conf.pid[PIDPOSR].P8);
-       i2c_write(conf.pid[PIDPOSR].I8);
-       i2c_write(conf.pid[PIDPOSR].D8);
-    
-    i2c_rep_start(I2C_GPS_ADDRESS<<1);
-      i2c_write(I2C_GPS_NAV_P);
-       i2c_write(conf.pid[PIDNAVR].P8);
-       i2c_write(conf.pid[PIDNAVR].I8);
-       i2c_write(conf.pid[PIDNAVR].D8);
-    
-    GPS_I2C_command(I2C_GPS_COMMAND_UPDATE_PIDS,0);
-    
-    uint8_t nav_flags = 0;
-	if (GPS_conf.filtering) nav_flags += I2C_NAV_FLAG_GPS_FILTER;
-    nav_flags += I2C_NAV_FLAG_LOW_SPEED_D_FILTER; 
-    
-    i2c_rep_start(I2C_GPS_ADDRESS<<1);
-      i2c_write(I2C_GPS_NAV_FLAGS);
-      i2c_write(nav_flags);
-      
-    i2c_rep_start(I2C_GPS_ADDRESS<<1);
-      i2c_write(I2C_GPS_WP_RADIUS);
-      i2c_write(GPS_conf.wp_radius & 0x00FF); // lower eight bit   
-      i2c_write(GPS_conf.wp_radius >> 8); // upper eight bit
-  #endif
-}
-
-//It was moved here since even i2cgps code needs it
-int32_t wrap_18000(int32_t ang) {
-  if (ang > 18000)  ang -= 36000;
-  if (ang < -18000) ang += 36000;
-  return ang;
-}
-
-
-
-
-#if defined(GPS_SERIAL)
-
 ////////////////////////////////////////////////////////////////////////////////////
 //PID based GPS navigation functions
 //Author : EOSBandi
 //Based on code and ideas from the Arducopter team: Jason Short,Randy Mackay, Pat Hickey, Jose Julio, Jani Hirvinen
 //Andrew Tridgell, Justin Beech, Adam Rivera, Jean-Louis Naudin, Roberto Navoni
 
+//original constraint does not work with variables
 int16_t constrain_int16(int16_t amt, int16_t low, int16_t high) {
 	return ((amt)<(low)?(low):((amt)>(high)?(high):(amt)));
 }
@@ -1166,7 +1138,6 @@ void GPS_set_next_wp(int32_t* lat_to, int32_t* lon_to, int32_t* lat_from, int32_
 
   GPS_FROM[LAT] = *lat_from;
   GPS_FROM[LON] = *lon_from;
-
  
   GPS_calc_longitude_scaling(*lat_to);
 
@@ -1382,32 +1353,6 @@ int32_t wrap_36000(int32_t ang) {
   return ang;
 }
 
-// This code is used for parsing NMEA data
-#if defined(GPS_SERIAL)
-
-// helper functions 
-uint16_t grab_fields(char* src, uint8_t mult) {  // convert string to uint16
-  uint8_t i;
-  uint16_t tmp = 0;
-
-  for(i=0; src[i]!=0; i++) {
-    if(src[i] == '.') {
-      i++;
-      if(mult==0)   break;
-      else  src[i+mult] = 0;
-    }
-    tmp *= 10;
-    if(src[i] >='0' && src[i] <='9') tmp += src[i]-'0';
-  }
-  return tmp;
-}
-
-uint8_t hex_c(uint8_t n) {    // convert '0'..'9','A'..'F' to 0..15
-  n -= '0';
-  if(n>9)  n -= 7;
-  n &= 0x0F;
-  return n;
-} 
 
 bool GPS_newFrame(char c) {
   #if defined(NMEA)
@@ -1436,6 +1381,29 @@ bool GPS_newFrame(char c) {
   #define FRAME_GGA  1
   #define FRAME_RMC  2
  
+uint16_t grab_fields(char* src, uint8_t mult) {  // convert string to uint16
+  uint8_t i;
+  uint16_t tmp = 0;
+
+  for(i=0; src[i]!=0; i++) {
+    if(src[i] == '.') {
+      i++;
+      if(mult==0)   break;
+      else  src[i+mult] = 0;
+      }
+    tmp *= 10;
+    if(src[i] >='0' && src[i] <='9') tmp += src[i]-'0';
+    }
+  return tmp;
+  }
+
+uint8_t hex_c(uint8_t n) {    // convert '0'..'9','A'..'F' to 0..15
+  n -= '0';
+  if(n>9)  n -= 7;
+  n &= 0x0F;
+  return n;
+  } 
+
 #define DIGIT_TO_VAL(_x)        (_x - '0')
 uint32_t GPS_coord_to_degrees(char* s) {
   char *p, *q;
@@ -1874,12 +1842,129 @@ restart:
 }
 #endif //MTK
 
-
-
-#endif //SERIAL GPS
-
 #endif //ONBOARD GPS CALC
 
+//************************************************************************
+// Common GPS functions - #defines inside handle I2CGPS and SERIAL
+//
+void init_RTH()
+  {
+  f.GPS_mode = GPS_MODE_RTH;									// Set GPS_mode to RTH
+  f.GPS_BARO_MODE = true;
+#if defined (I2C_GPS)
+  GPS_I2C_command(I2C_GPS_COMMAND_START_NAV,0);            //waypoint zero
+#else
+  GPS_hold[LAT] = GPS_coord[LAT];							//All RTH starts with a poshold 
+  GPS_hold[LON] = GPS_coord[LON];							//This allows to raise to rth altitude
+  GPS_set_next_wp(&GPS_hold[LAT],&GPS_hold[LON], &GPS_hold[LAT], &GPS_hold[LON]);
+  NAV_paused_at = 0;
+  if (GPS_conf.rth_altitude == 0) set_new_altitude(alt.EstAlt);	    //Return at actual altitude
+  else {													// RTH altitude is defined, but we use it only if we are below it
+    if (alt.EstAlt < GPS_conf.rth_altitude * 100) 
+      set_new_altitude(GPS_conf.rth_altitude * 100);
+    else set_new_altitude(alt.EstAlt);					   
+    }
+  f.GPS_head_set = 0;										//Allow the RTH ti handle heading
+  NAV_state = NAV_STATE_RTH_START;							//NAV engine status is Starting RTH.
+#endif
+  }
+void GPS_reset_home_position(void) {
+  if (f.GPS_FIX && GPS_numSat >= 5) {
+#if defined(I2C_GPS)
+    //set current position as home
+    GPS_I2C_command(I2C_GPS_COMMAND_SET_WP,0);  //WP0 is the home position
+#else
+    GPS_home[LAT] = GPS_coord[LAT];
+    GPS_home[LON] = GPS_coord[LON];
+    GPS_calc_longitude_scaling(GPS_coord[LAT]);  //need an initial value for distance and bearing calc
+#endif
+    nav_takeoff_bearing = att.heading;             //save takeoff heading
+    //TODO: Set ground altitude
+    f.GPS_FIX_HOME = 1;
+    }
+  }
+//reset navigation (stop the navigation processor, and clear nav)
+void GPS_reset_nav(void) {
+  uint8_t i;
+
+  for(i=0;i<2;i++) {
+    nav[i] = 0;
+#if defined(I2C_GPS)
+    GPS_I2C_command(I2C_GPS_COMMAND_STOP_NAV,0);
+#else
+    reset_PID(&posholdPID[i]);
+    reset_PID(&poshold_ratePID[i]);
+    reset_PID(&navPID[i]);
+    NAV_state = NAV_STATE_NONE;
+    //invalidate JUMP counter
+    jump_times = -10;
+    //reset next step counter
+    next_step = 1;
+    //Clear poi
+    GPS_poi[LAT] = 0; GPS_poi[LON] = 0;
+    f.GPS_head_set = 0;
+#endif
+    }
+  }
+//Get the relevant P I D values and set the PID controllers 
+void GPS_set_pids(void) {
+#if defined(GPS_SERIAL)  || defined(GPS_FROM_OSD)
+  posholdPID_PARAM.kP   = (float)conf.pid[PIDPOS].P8/100.0;
+  posholdPID_PARAM.kI   = (float)conf.pid[PIDPOS].I8/100.0;
+  posholdPID_PARAM.Imax = POSHOLD_RATE_IMAX * 100;
+
+  poshold_ratePID_PARAM.kP   = (float)conf.pid[PIDPOSR].P8/10.0;
+  poshold_ratePID_PARAM.kI   = (float)conf.pid[PIDPOSR].I8/100.0;
+  poshold_ratePID_PARAM.kD   = (float)conf.pid[PIDPOSR].D8/1000.0;
+  poshold_ratePID_PARAM.Imax = POSHOLD_RATE_IMAX * 100;
+
+  navPID_PARAM.kP   = (float)conf.pid[PIDNAVR].P8/10.0;
+  navPID_PARAM.kI   = (float)conf.pid[PIDNAVR].I8/100.0;
+  navPID_PARAM.kD   = (float)conf.pid[PIDNAVR].D8/1000.0;
+  navPID_PARAM.Imax = POSHOLD_RATE_IMAX * 100;
+#endif
+
+#if defined(I2C_GPS)
+  if (!f.I2C_INIT_DONE) return;
+  i2c_rep_start(I2C_GPS_ADDRESS<<1);
+  i2c_write(I2C_GPS_HOLD_P);
+  i2c_write(conf.pid[PIDPOS].P8);
+  i2c_write(conf.pid[PIDPOS].I8);
+
+  i2c_rep_start(I2C_GPS_ADDRESS<<1);
+  i2c_write(I2C_GPS_HOLD_RATE_P);
+  i2c_write(conf.pid[PIDPOSR].P8);
+  i2c_write(conf.pid[PIDPOSR].I8);
+  i2c_write(conf.pid[PIDPOSR].D8);
+
+  i2c_rep_start(I2C_GPS_ADDRESS<<1);
+  i2c_write(I2C_GPS_NAV_P);
+  i2c_write(conf.pid[PIDNAVR].P8);
+  i2c_write(conf.pid[PIDNAVR].I8);
+  i2c_write(conf.pid[PIDNAVR].D8);
+
+  GPS_I2C_command(I2C_GPS_COMMAND_UPDATE_PIDS,0);
+
+  uint8_t nav_flags = 0;
+  if (GPS_conf.filtering) nav_flags += I2C_NAV_FLAG_GPS_FILTER;
+  nav_flags += I2C_NAV_FLAG_LOW_SPEED_D_FILTER; 
+
+  i2c_rep_start(I2C_GPS_ADDRESS<<1);
+  i2c_write(I2C_GPS_NAV_FLAGS);
+  i2c_write(nav_flags);
+
+  i2c_rep_start(I2C_GPS_ADDRESS<<1);
+  i2c_write(I2C_GPS_WP_RADIUS);
+  i2c_write(GPS_conf.wp_radius & 0x00FF); // lower eight bit   
+  i2c_write(GPS_conf.wp_radius >> 8); // upper eight bit
+#endif
+  }
+//It was moved here since even i2cgps code needs it
+int32_t wrap_18000(int32_t ang) {
+  if (ang > 18000)  ang -= 36000;
+  if (ang < -18000) ang += 36000;
+  return ang;
+  }
 
 
 #endif // GPS

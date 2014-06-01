@@ -173,7 +173,11 @@ typedef struct {
   uint8_t thrMid8;
   uint8_t thrExpo8;
   int16_t angleTrim[2];
+  #if defined(EXTENDED_AUX_STATES)				
+   uint32_t activate[CHECKBOXITEMS];				//Extended aux states define six different aux state for each aux channel
+  #else
   uint16_t activate[CHECKBOXITEMS];
+  #endif 
   uint8_t powerTrigger1;
   #if MAG
     int16_t mag_declination;
@@ -228,6 +232,45 @@ typedef struct {
 #if GPS
 
 // TODO: cross check with I2C gps and add relevant defines
+
+//This is the mode what is selected via the remote (NONE, HOLD, RTH and NAV (NAV-> exectute mission)
+enum gpsmode {
+  GPS_MODE_NONE = 0, 
+  GPS_MODE_HOLD, 
+  GPS_MODE_RTH, 
+  GPS_MODE_NAV 
+};
+
+enum navstate {
+  NAV_STATE_NONE = 0,
+  NAV_STATE_RTH_START,
+  NAV_STATE_RTH_ENROUTE,
+  NAV_STATE_HOLD_INFINIT,
+  NAV_STATE_HOLD_TIMED,
+  NAV_STATE_WP_ENROUTE,
+  NAV_STATE_PROCESS_NEXT,
+  NAV_STATE_DO_JUMP,
+  NAV_STATE_LAND_START,
+  NAV_STATE_LAND_IN_PROGRESS,
+  NAV_STATE_LANDED,
+  NAV_STATE_LAND_SETTLE,
+  NAV_STATE_LAND_START_DESCENT
+};
+
+enum naverror {
+  NAV_ERROR_NONE = 0,            //All systems clear
+  NAV_ERROR_TOOFAR,              //Next waypoint distance is more than safety distance
+  NAV_ERROR_SPOILED_GPS,         //GPS reception is compromised - Nav paused - copter is adrift !
+  NAV_ERROR_WP_CRC,              //CRC error reading WP data from EEPROM - Nav stopped
+  NAV_ERROR_FINISH,              //End flag detected, navigation finished
+  NAV_ERROR_TIMEWAIT,            //Waiting for poshold timer
+  NAV_ERROR_INVALID_JUMP,        //Invalid jump target detected, aborting
+  NAV_ERROR_INVALID_DATA,        //Invalid mission step action code, aborting, copter is adrift
+  NAV_ERROR_WAIT_FOR_RTH_ALT,    //Waiting to reach RTH Altitude
+  NAV_ERROR_GPS_FIX_LOST,        //Gps fix lost, aborting mission
+  NAV_ERROR_DISARMED,            //NAV engine disabled due disarm
+  NAV_ERROR_LANDING              //Landing
+  };
 
  typedef struct {
 	  uint8_t	number;		//Waypoint number

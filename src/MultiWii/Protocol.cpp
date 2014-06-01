@@ -252,7 +252,11 @@ void evaluateCommand() {
      s_struct_w((uint8_t*)&conf.pid[0].P8,3*PIDITEMS);
      break;
    case MSP_SET_BOX:
+#if EXTAUX
+     s_struct_w((uint8_t*)&conf.activate[0],CHECKBOXITEMS*4);
+#else
      s_struct_w((uint8_t*)&conf.activate[0],CHECKBOXITEMS*2);
+#endif
      break;
    case MSP_SET_RC_TUNING:
      s_struct_w((uint8_t*)&conf.rcRate8,7);
@@ -348,7 +352,7 @@ void evaluateCommand() {
      id.v     = VERSION;
      id.t     = MULTITYPE;
      id.msp_v = MSP_VERSION;
-     id.cap   = capability|DYNBAL<<2|FLAP<<3|NAVCAP<<4|((uint32_t)NAVI_VERSION<<28);			//Navi version is stored in the upper four bits; 
+     id.cap   = capability|DYNBAL<<2|FLAP<<3|NAVCAP<<4|EXTAUX<<5|((uint32_t)NAVI_VERSION<<28);			//Navi version is stored in the upper four bits; 
      s_struct((uint8_t*)&id,7);
      break;
    case MSP_STATUS:
@@ -489,7 +493,11 @@ void evaluateCommand() {
      serializeNames(pidnames);
      break;
    case MSP_BOX:
+#if EXTAUX
+     s_struct((uint8_t*)&conf.activate[0],4*CHECKBOXITEMS);
+#else
      s_struct((uint8_t*)&conf.activate[0],2*CHECKBOXITEMS);
+#endif
      break;
    case MSP_BOXNAMES:
      serializeNames(boxnames);
@@ -504,7 +512,7 @@ void evaluateCommand() {
      s_struct((uint8_t*)&PWM_PIN,8);
      break;
 
-#if defined(USE_MSP_WP)    
+#if defined(USE_MSP_WP) && !defined(I2C_GPS) && GPS   
 
    case MSP_SET_NAV_CONFIG:
 	   s_struct_w((uint8_t*)&GPS_conf,sizeof(GPS_conf));

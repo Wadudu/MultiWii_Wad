@@ -158,7 +158,7 @@ void store_uart_in_buf(uint8_t data, uint8_t portnum) {
         uint32_t spekTimeNow = (timer0_overflow_count << 8) * (64 / clockCyclesPerMicrosecond()); //Move timer0_overflow_count into registers so we don't touch a volatile twice
         uint32_t spekInterval = spekTimeNow - spekTimeLast;                                       //timer0_overflow_count will be slightly off because of the way the Arduino core timer interrupt handler works; that is acceptable for this use. Using the core variable avoids an expensive call to millis() or micros()
         spekTimeLast = spekTimeNow;
-        if (spekInterval > 2500) {  //Potential start of a Spektrum frame, they arrive every 11 or every 22 ms. Mark it, and clear the buffer. 
+        if (spekInterval > 5000) {  //Potential start of a Spektrum frame, they arrive every 11 or every 22 ms. Mark it, and clear the buffer. 
           serialTailRX[portnum] = 0;
           serialHeadRX[portnum] = 0;
           spekFrameFlags = 0x01;

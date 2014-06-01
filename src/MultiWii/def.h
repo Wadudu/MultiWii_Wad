@@ -537,15 +537,15 @@
   #define LEDPIN_TOGGLE              PINB  |= (1<<7); PINC  |= (1<<7);
   #define LEDPIN_ON                  PORTB |= (1<<7); PORTC |= (1<<7);
   #define LEDPIN_OFF                 PORTB &= ~(1<<7);PORTC &= ~(1<<7);
-  #define BUZZERPIN_PINMODE          pinMode (32, OUTPUT);
   #if defined PILOTLAMP
+  #define BUZZERPIN_PINMODE          pinMode (32, OUTPUT);
     #define    PL_PIN_ON    PORTC |= 1<<5;
     #define    PL_PIN_OFF   PORTC &= ~(1<<5);
   #else
+    #define BUZZERPIN_PINMODE          pinMode (32, OUTPUT);
     #define BUZZERPIN_ON               PORTC |= 1<<5;
     #define BUZZERPIN_OFF              PORTC &= ~(1<<5);
   #endif 
-    
   #if !defined(DISABLE_POWER_PIN)
     #define POWERPIN_PINMODE           pinMode (37, OUTPUT);
     #define POWERPIN_ON                PORTC |= 1<<0;
@@ -840,6 +840,11 @@
 #if ( defined(MEGA) && defined(MEGA_HW_PWM_SERVOS) ) || (defined(PROMICRO) && defined(A32U4_4_HW_PWM_SERVOS))
   #undef SERVO_1_HIGH                                    // No software PWM's if we use hardware MEGA PWM or promicro hardware pwm
   #define HW_PWM_SERVOS
+#endif
+
+#if defined(MWI_SDCARD)
+#define LOGFILE_GPS 0
+#define LOGFILE_PERM 1
 #endif
 
 
@@ -1188,7 +1193,7 @@
 #define GYRO_ORIENTATION(X, Y, Z) {imu.gyroADC[ROLL] =  X; imu.gyroADC[PITCH] = Y; imu.gyroADC[YAW] = -Z;}
 #if defined (DROTEK_DROFLY_V3_GPS) 
 #define HMC5883
-#define MAG_ORIENTATION(X, Y, Z)  {imu.magADC[ROLL]  =  -Y; imu.magADC[PITCH]  = -X; imu.magADC[YAW]  = Z;}
+#define MAG_ORIENTATION(X, Y, Z)  {imu.magADC[ROLL]  =  Y; imu.magADC[PITCH]  = X; imu.magADC[YAW]  = Z;}
 #endif
 #define MPU6050_ADDRESS 0X69
 #undef INTERNAL_I2C_PULLUPS
@@ -1199,17 +1204,12 @@
 #define STABLEPIN_PINMODE          pinMode (30, OUTPUT);
 #define STABLEPIN_ON               PORTC |= 1<<7;
 #define STABLEPIN_OFF              PORTC &= ~(1<<7);
-#define BUZZERPIN_PINMODE          pinMode (11, OUTPUT);
-#if defined MWI_SDCARD
-#define DDR_XCK2    DDRH 
-#define PORT_XCK2   PORTH  
-#define XCK2        PH2   
-#define CSPIN XCK2
-#endif
 #if defined PILOTLAMP
+#define BUZZERPIN_PINMODE          pinMode (11, OUTPUT);
 #define    PL_PIN_ON    PORTB |= 1<<5;
 #define    PL_PIN_OFF   PORTB &= ~(1<<5);
 #else
+#define BUZZERPIN_PINMODE          pinMode (11, OUTPUT);
 #define BUZZERPIN_ON               PORTB |= 1<<5;
 #define BUZZERPIN_OFF              PORTB &= ~(1<<5);
 #endif 
@@ -1653,7 +1653,6 @@
   #undef INTERNAL_I2C_PULLUPS
 #endif
 
-
 /**************************************************************************************/
 /***************              Sensor Type definitions              ********************/
 /**************************************************************************************/
@@ -1705,6 +1704,13 @@
   #define SONAR 0
 #endif
 
+#if defined(EXTENDED_AUX_STATES)
+  #define EXTAUX 1
+#else
+  #define EXTAUX 0
+#endif
+
+
 
 /**************************************************************************************/
 /***************      Multitype decleration for the GUI's          ********************/
@@ -1750,7 +1756,7 @@
 #elif defined(HEX6H)
   #define MULTITYPE 18
 #elif defined(SINGLECOPTER)
-  #define MULTITYPE 20
+  #define MULTITYPE 21
   #define SERVO_RATES      {30,30,100,0,1,0,1,100}
 #elif defined(DUALCOPTER)
   #define MULTITYPE 20

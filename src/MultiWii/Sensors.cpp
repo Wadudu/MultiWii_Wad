@@ -697,24 +697,29 @@ void i2c_MS561101BA_UT_Read() {
 void i2c_MS561101BA_Calculate() {
   int32_t delt;
 
-  int64_t dT       = (int32_t)ms561101ba_ctx.ut.val - ((int32_t)ms561101ba_ctx.c[5] << 8);
-  int64_t off      = ((uint32_t)ms561101ba_ctx.c[2] <<16) + ((dT * ms561101ba_ctx.c[4]) >> 7);
-  int64_t sens     = ((uint32_t)ms561101ba_ctx.c[1] <<15) + ((dT * ms561101ba_ctx.c[3]) >> 8);
-  baroTemperature  = 2000 + ((dT * ms561101ba_ctx.c[6])>>23);
+  float dT       = (int32_t)ms561101ba_ctx.ut.val - (int32_t)((uint32_t)ms561101ba_ctx.c[5] << 8);
+  float off      = ((uint32_t)ms561101ba_ctx.c[2] <<16) + ((dT * ms561101ba_ctx.c[4]) /((uint32_t)1<<7));
+  float sens     = ((uint32_t)ms561101ba_ctx.c[1] <<15) + ((dT * ms561101ba_ctx.c[3]) /((uint32_t)1<<8));
+  baroTemperature  = (dT * ms561101ba_ctx.c[6])/((uint32_t)1<<23);
 
   if (baroTemperature < 0) { // temperature lower than 20st.C 
-    delt = baroTemperature - 2000;
+    delt = baroTemperature;
     delt  = 5*delt*delt;
     off  -= delt>>1; 
     sens -= delt>>2;
   }
 
-  //debug[0] = baroTemperature;
+  baroTemperature  += 2000;
   baroPressure     = (( (ms561101ba_ctx.up.val * sens ) /((uint32_t)1<<21)) - off)/((uint32_t)1<<15);
 }
 
 //return 0: no data available, no computation ;  1: new value available  ; 2: no new value, but computation time
 uint8_t Baro_update() {                          // first UT conversion is started in init procedure
+  if (ms561101ba_ctx.state == 2) {               // a third state is introduced here to isolate calculate() and smooth timecycle spike
+    ms561101ba_ctx.state = 0;
+    i2c_MS561101BA_Calculate();
+    return 2;
+  }
   if ((int16_t)(currentTime - ms561101ba_ctx.deadline)<0) return 0;
   ms561101ba_ctx.deadline = currentTime+10000;  // UT and UP conversion take 8.5ms so we do next reading after 10ms 
   if (ms561101ba_ctx.state == 0) {
@@ -726,8 +731,7 @@ uint8_t Baro_update() {                          // first UT conversion is start
   } else {
     i2c_MS561101BA_UP_Read();
     i2c_MS561101BA_UT_Start();
-    i2c_MS561101BA_Calculate();
-    ms561101ba_ctx.state = 0;
+    ms561101ba_ctx.state = 2;
     return 2;
   }
 }
@@ -1657,7 +1661,7 @@ uint16_t i2c_try_readReg(uint8_t add, uint8_t reg) {
 // read a 16bit unsigned int from the i2c bus
 uint16_t i2c_readReg16(int8_t addr, int8_t reg) {
   uint8_t b[2];
-  i2c_read_reg_to_buf(addr, reg, &b, sizeof(b));
+  i2c_read_reg_to_buf(addr, reg, &b[0], sizeof(b));
   return (b[0]<<8) | b[1];
 }
 

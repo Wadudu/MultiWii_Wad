@@ -85,17 +85,39 @@ void alarmHandler(void){
     else alarmArray[2] = 0;
   #endif
   
+/* 
+Control Config.h configuration and valid choices
+*/  
+
 #if (defined (LOG_PERMANENT_SD_ONLY))|(defined (LOG_GPS_POSITION)) && !(defined(MWI_SDCARD))
-#error "if you had enabled options in SDCARD support you must enable #define MWI_SDCARD, please verify your config.h"
+#error "if you had enabled options in SDCARD support you must enable #define MWI_SDCARD"
+#error "Si vous avez activer une option pour la SDCARD vous devez activer #define MWI_SDCARD"
+#error "please check config.h"
 #endif
+
+#if defined (LOG_GPS_POSITION)&&!GPS
+#error"If you wants to use LOG_GPS_POISITION position,you need a GPS..."
+#error"Si vous voulez utiliser LOG_GPS_POSITION vous devez avoir un GPS..."
+#error "please check config.h"
+#endif
+
 #if (defined (MWI_SDCARD))&& !(defined(LOG_PERMANENT))
-#error "if you wants to use SDCARD support, you must enable #define LOG_PERMANENT, please verify your config.h"
+#error "If you wants to use SDCARD support, you must enable #define LOG_PERMANENT"
+#error "Si vous voulez utiliser le support SDCARD, vous devez activer #define LOG_PERMANENT"
+#error "please check config.h"
 #endif
 
 #if defined(VOLUME_FLIGHT)||defined(VOLUME_S1)||defined(VOLUME_S2)||defined(VOLUME_S3)
 #if !defined(BUZZER)
-#error "If you want to use VOLUME_FLIGHT you must use a buzzer...Please check your config.h"
-#error "Si vous utilisez l'option VOLUME_FLIGHT vous devez activer un buzzer...Merci de verifier config.h'"
+#error "If you want to use VOLUME_FLIGHT you must use a buzzer..."
+#error "Si vous utilisez l'option VOLUME_FLIGHT vous devez activer un buzzer..."
+#error "Please check config.h and #define BUZZER"
+#endif
+
+#if !GPS && (defined(VOLUME_FLIGHT)||defined(VOLUME_S1)||defined(VOLUME_S2)||defined(VOLUME_S3)) 
+#error "If you wants to use VOLUME_FLIGHT, you need a GPS !"
+#error "Si vous voulez utiliser la restriction de vol VOLUME_FLIGHT, vous devez avoir un GPS"
+#error "Please check config.h and GPS configuration"
 #endif
 
 	if (f.VOLUME_MODE == 1 && alarmArray[1] == 0)
