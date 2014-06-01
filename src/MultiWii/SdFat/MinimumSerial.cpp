@@ -26,7 +26,7 @@
  * Do not call this function if you use another serial library.
  * \param[in] baud rate
  */
-void MinimumSerial::begin(unsigned long baud) {
+void MinimumSerial::begin(uint32_t baud) {
   uint16_t baud_setting;
   // don't worry, the compiler will squeeze out F_CPU != 16000000UL
   if (F_CPU != 16000000UL || baud != 57600) {
