@@ -340,7 +340,7 @@ int16_t  GPS_angle[2] = { 0, 0};                      // the angles that must be
   uint32_t GPS_time;
   uint8_t  GPS_Frame   = 0;
 #if defined(VOLUME_FLIGHT) || defined(VOLUME_S1) || defined(VOLUME_S2) || defined(VOLUME_S3)
-  uint16_t GPS_distanceToHomeMax;
+  uint16_t GPS_distanceToHomeMax = 0;
   int32_t BAROaltHome;
 #endif
 
@@ -766,36 +766,55 @@ void setup() {
 	init_SD();
 #endif
 	#if defined(VOLUME_FLIGHT)
-	VolumeHeightMax = VOLUME_HEIGTH_MAX * 100;
-	GPS_distanceToHomeMax = VOLUME_DISTANCE_MAX;
-	f.VOLUME_MODE = 0;
+          VolumeHeightMax = VOLUME_HEIGTH_MAX * 100;
+          #if defined(VOLUME_FLIGHT_RTH)
+          GPS_conf.fence = VOLUME_DISTANCE_MAX;
+          #else
+          GPS_distanceToHomeMax = VOLUME_DISTANCE_MAX;
+          #endif
+          f.VOLUME_MODE = 0;
 	#endif
+
 	#ifdef VOLUME_S1
-		 GPS_distanceToHomeMax = VOLUME_S1_DSTMAX;
-			#if defined(VOLUME_2KG)
-				VolumeHeightMax = VOLUME_HMAX_2KG * 100;
-			#else
-				VolumeHeightMax = VOLUME_HMAX * 100;
-			#endif
-		 f.VOLUME_MODE = 0;
+          #if defined(VOLUME_FLIGHT_RTH)
+          GPS_conf.fence = VOLUME_S1_DSTMAX;
+          #else
+          GPS_distanceToHomeMax = VOLUME_S1_DSTMAX;
+          #endif
+          #if defined(VOLUME_2KG)
+          VolumeHeightMax = VOLUME_HMAX_2KG * 100;
+          #else
+          VolumeHeightMax = VOLUME_HMAX * 100;
+          #endif
+          f.VOLUME_MODE = 0;
 	#endif
+
 	#ifdef VOLUME_S2
-		 GPS_distanceToHomeMax = VOLUME_S2_DSTMAX;
-		#if defined(VOLUME_2KG)
-		VolumeHeightMax = VOLUME_HMAX_2KG * 100;
-		#else
-		VolumeHeightMax = VOLUME_HMAX * 100;
-		#endif
-		f.VOLUME_MODE = 0;
+          #if defined(VOLUME_FLIGHT_RTH)
+          GPS_conf.fence = VOLUME_S2_DSTMAX;
+          #else
+          GPS_distanceToHomeMax = VOLUME_S2_DSTMAX;
+          #endif
+          #if defined(VOLUME_2KG)
+	  VolumeHeightMax = VOLUME_HMAX_2KG * 100;
+	  #else
+	  VolumeHeightMax = VOLUME_HMAX * 100;
+	  #endif
+	  f.VOLUME_MODE = 0;
 	#endif
+
 	#ifdef VOLUME_S3
-		 GPS_distanceToHomeMax = VOLUME_S3_DSTMAX;
-		#if defined(VOLUME_2KG)
-		VolumeHeightMax = VOLUME_HMAX_2KG * 100;
-		#else
-		VolumeHeightMax = VOLUME_HMAX * 100;
-		#endif
-		f.VOLUME_MODE = 0;
+          #if defined(VOLUME_FLIGHT_RTH)
+          GPS_conf.fence = VOLUME_S3_DSTMAX;
+          #else
+          GPS_distanceToHomeMax = VOLUME_S3_DSTMAX;
+          #endif
+          #if defined(VOLUME_2KG)
+	  VolumeHeightMax = VOLUME_HMAX_2KG * 100;
+	  #else
+	  VolumeHeightMax = VOLUME_HMAX * 100;
+	  #endif
+	  f.VOLUME_MODE = 0;
 	#endif
 	
   debugmsg_append_str("initialization completed\n");
@@ -1199,12 +1218,6 @@ void loop () {
     #endif
 #if GPS
 
-#if defined(VOLUME_FLIGHT) || defined(VOLUME_S1) || defined(VOLUME_S2) || defined(VOLUME_S3) // Wad à corriger
-	  debug[0] = alt.EstAlt;
-	  debug[1] = VolumeAltitudeMax;
-	  debug[2] = GPS_distanceToHome;
-	  debug[3] = f.VOLUME_MODE; //GPS_distanceToHomeMax;
-#endif
 	  // This handles the three rcOptions boxes 
 	  // unlike other parts of the multiwii code, it looks for changes and not based on flag settings
 	  // by this method a priority can be established between gps option
@@ -1215,16 +1228,31 @@ void loop () {
 	  if (f.ARMED) {                       //Check GPS status and armed
 		  //TODO: implement f.GPS_Trusted flag, idea from Dramida - Check for degraded HDOP and sudden speed jumps
 #if defined(VOLUME_FLIGHT) || defined(VOLUME_S1) || defined(VOLUME_S2) || defined(VOLUME_S3)
-		  if (f.ARMED && ((alt.EstAlt > VolumeAltitudeMax) || (GPS_distanceToHome > GPS_distanceToHomeMax)))
+                  #if defined(VOLUME_FLIGHT_RTH)
+                  if (f.ARMED && ((alt.EstAlt > VolumeAltitudeMax) || (GPS_distanceToHome > GPS_conf.fence)))
+                  #else
+                  if (f.ARMED && ((alt.EstAlt > VolumeAltitudeMax) || (GPS_distanceToHome > GPS_distanceToHomeMax)))
+                  #endif		  
 		  {
-			  f.VOLUME_MODE = 1;
-			
+		      f.VOLUME_MODE = 1;			
 		  }
 		  else if (f.VOLUME_MODE == 1)
 		  {
-			  if ((VolumeAltitudeMax - 50 > alt.EstAlt) && (GPS_distanceToHomeMax - 2 > GPS_distanceToHome))
-				  f.VOLUME_MODE = 0;
-
+                      #if defined(VOLUME_FLIGHT_RTH)
+                      if ((VolumeAltitudeMax - 50 > alt.EstAlt) && (GPS_conf.fence*0.75 > GPS_distanceToHome))
+                      #else
+                      if ((VolumeAltitudeMax - 50 > alt.EstAlt) && (GPS_distanceToHomeMax*0.75 > GPS_distanceToHome))
+                      #endif
+                      {
+                          #if defined(VOLUME_FLIGHT_RTH)
+                          f.GPS_mode = GPS_MODE_NONE;
+                          f.GPS_BARO_MODE = false;
+                          f.LAND_IN_PROGRESS = 0;
+                          f.THROTTLE_IGNORED = 0;
+                          GPS_reset_nav();
+                          #endif
+                          f.VOLUME_MODE = 0;
+                      }
 		  }
 #endif
 		  if (f.GPS_FIX) {

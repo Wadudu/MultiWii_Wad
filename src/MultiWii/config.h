@@ -612,10 +612,10 @@
   The volume is limited with a defined heigth from the ground and a distance from the taking off point.
   This option need GPS and Buzzer installed on board!
   */
-    //#define VOLUME_FLIGHT
-    //#define VOLUME_FLIGHT_RTH //not yet implemented
-    //#define VOLUME_HEIGTH_MAX 10
-    //#define VOLUME_DISTANCE_MAX 30
+    #define VOLUME_FLIGHT
+    #define VOLUME_FLIGHT_RTH
+    #define VOLUME_HEIGTH_MAX 10
+    #define VOLUME_DISTANCE_MAX 20
   
  /* The following defines are related to flying authorizations from to French air administration. */
     //#define VOLUME_S1 
@@ -747,19 +747,19 @@
 	//#define GPS_FILTERING                 //(**)     
     
     // if we are within this distance to a waypoint then we consider it reached (distance is in cm)
-    #define GPS_WP_RADIUS              100      //(**) 
+    #define GPS_WP_RADIUS              200      //(**) 
 
 	// Safe WP distance, do not start mission if the first wp distance is larger than this number (in meters)
 	// Also aborts mission if the next waypoint distance is more than this number
 	#define SAFE_WP_DISTANCE	       500      //(**)
 
 	//Maximu allowable navigation altitude (in meters) automatic altitude control will not go above this height
-	#define MAX_NAV_ALTITUDE		   100     //(**)
+	#define MAX_NAV_ALTITUDE		   50     //(**)
 
     // minimum speed when approach waypoint
 	#define NAV_SPEED_MIN              100    // cm/sec			//(**)
 	// maximum speed to reach between waypoints
-	#define NAV_SPEED_MAX              400    // cm/sec			//(**)
+	#define NAV_SPEED_MAX              300    // cm/sec			//(**)
 	// Slow down to zero when reaching waypoint (same as NAV_SPEED_MIN = 0)
 	#define NAV_SLOW_NAV               0						//(**)
 	// Weight factor of the crosstrack error in navigation calculations (do not touch)
@@ -780,7 +780,7 @@
 
     //If FENCE DISTANCE is larger than 0 then copter will switch to RTH when it farther from home
 	//than the defined number in meters
-    #define FENCE_DISTANCE      600
+    #define FENCE_DISTANCE      150
 
     //This governs the descent speed during landing. 100 is equals approc 50cm/sec
     #define LAND_SPEED          100
